@@ -2,28 +2,14 @@ import "dotenv/config";
 import express from "express";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { createApp, type Provider } from "./app";
+import { createApp } from "./app";
+import { environmentConfiguration, SettingsStore } from "./settings";
 
-function provider(prefix: "ASR" | "LLM", defaultModel: string): Provider {
-  const baseUrl = process.env[`${prefix}_BASE_URL`];
-  if (!baseUrl)
-    throw new Error(`Set ${prefix}_BASE_URL in .env before starting.`);
-  if (!["http:", "https:"].includes(new URL(baseUrl).protocol))
-    throw new Error(`${prefix}_BASE_URL must use HTTP or HTTPS.`);
-  const configuredProvider = process.env[`${prefix}_PROVIDER`];
-  if (configuredProvider && configuredProvider !== "openai-compatible")
-    throw new Error(`${prefix}_PROVIDER must be openai-compatible.`);
-  return {
-    baseUrl,
-    key: process.env[`${prefix}_API_KEY`] ?? "",
-    model: process.env[`${prefix}_MODEL`] ?? defaultModel,
-  };
-}
-
-const app = createApp({
-  asr: provider("ASR", "Qwen3-ASR-1.7B-bf16"),
-  llm: provider("LLM", "Qwen3.5-35B-A3B-4bit"),
+const settings = new SettingsStore(environmentConfiguration(), {
+  path: resolve(process.env.SETTINGS_FILE ?? ".local/settings.json"),
+  label: "Local server settings file",
 });
+const app = createApp(settings);
 const dist = resolve("dist");
 if (existsSync(dist)) {
   app.use(express.static(dist));

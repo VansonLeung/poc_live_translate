@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "dist-electron/main.cjs",
+  "description": "Live speech transcription and translation for browser and desktop.",
+  "author": "Maritime",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -13,7 +16,13 @@
     "preview": "vite preview --port 6005 --strictPort",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "debug:latency": "tsx scripts/debug-latency.ts"
+    "debug:latency": "tsx scripts/debug-latency.ts",
+    "build:desktop": "npm run build && node scripts/build-electron.mjs",
+    "desktop": "npm run build:desktop && node scripts/start-desktop.mjs",
+    "pack:desktop": "npm run build:desktop && electron-builder --dir --publish never",
+    "dist:mac": "npm run build:desktop && electron-builder --mac --publish never",
+    "dist:win": "npm run build:desktop && electron-builder --win --publish never",
+    "test:desktop": "npm run build:desktop && playwright test --config playwright.electron.config.ts"
   },
   "dependencies": {
     "@ant-design/icons": "^6.0.0",
@@ -34,6 +43,9 @@
     "@types/supertest": "^6.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.0.0",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
     "supertest": "^7.0.0",
     "tsx": "^4.20.0",
     "typescript": "~5.9.0",

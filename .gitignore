@@ -8,3 +8,7 @@ test-results/
 debug-reports/
 *.log
 .DS_Store
+
+.local/
+dist-electron/
+release/

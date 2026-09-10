@@ -1,0 +1,26 @@
+{
+  "appId": "com.maritime.livetranslate",
+  "productName": "Live Translate",
+  "directories": { "output": "release" },
+  "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
+  "asar": true,
+  "npmRebuild": false,
+  "mac": {
+    "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+    "category": "public.app-category.productivity",
+    "minimumSystemVersion": "13.0",
+    "hardenedRuntime": true,
+    "extendInfo": {
+      "NSMicrophoneUsageDescription": "Record microphone audio for transcription and translation.",
+      "NSAudioCaptureUsageDescription": "Capture desktop audio for transcription and translation.",
+      "NSScreenCaptureUsageDescription": "Select a screen to capture its audio for translation."
+    }
+  },
+  "win": { "target": [{ "target": "nsis", "arch": ["x64", "arm64"] }] },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true
+  },
+  "artifactName": "Live-Translate-${version}-${os}-${arch}.${ext}"
+}

@@ -44,7 +44,7 @@ test("microphone capture transcribes, translates each sentence, exports, and sto
   });
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Every voice. Understood." }),
+    page.getByRole("heading", { name: "Live Translate" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Start listening" }).click();
   await expect(page.getByText("Listening live", { exact: true })).toBeVisible();

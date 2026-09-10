@@ -30,7 +30,7 @@ export default function DiagnosticsPanel({
   return (
     <details className="diagnostics-panel">
       <summary>
-        Latency diagnostics <span>Find out where time is spent</span>
+        Latency diagnostics
       </summary>
       <div className="diagnostics-body">
         <div className="diagnostics-actions">

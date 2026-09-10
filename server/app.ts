@@ -1,20 +1,14 @@
 import express from "express";
 import multer from "multer";
+import { SettingsStore } from "./settings";
+import type { Configuration, Provider } from "../shared/settings";
+export type { Configuration, Provider } from "../shared/settings";
 import {
   sourceLanguages,
   targetLanguages,
   languageName,
 } from "../shared/languages";
 
-export interface Provider {
-  baseUrl: string;
-  key: string;
-  model: string;
-}
-export interface Configuration {
-  asr: Provider;
-  llm: Provider;
-}
 class ApiError extends Error {
   constructor(
     public status: number,
@@ -43,20 +37,38 @@ function languages(
 }
 
 export function createApp(
-  config: Configuration,
+  configuration: Configuration | SettingsStore,
   fetchProvider: typeof fetch = fetch,
+  options: { desktop?: boolean; token?: string; origin?: () => string } = {},
 ) {
+  const settings =
+    configuration instanceof SettingsStore
+      ? configuration
+      : new SettingsStore(configuration);
   const app = express();
   app.disable("x-powered-by");
   // The local API is only for this same-origin browser app. Do not permit cross-origin callers.
   app.use((req, res, next) => {
+    if (!["127.0.0.1", "localhost", "[::1]"].includes(req.hostname)) {
+      res.status(403).json({ error: "Host not allowed." });
+      return;
+    }
+    if (options.token && req.get("X-Desktop-Token") !== options.token) {
+      res.status(401).json({ error: "Desktop session required." });
+      return;
+    }
     const origin = req.get("origin");
     if (origin) {
       try {
-        if (
-          !["127.0.0.1", "localhost"].includes(new URL(origin).hostname) ||
-          !["6005", "6006"].includes(new URL(origin).port)
-        ) {
+        const allowed = options.origin
+          ? [options.origin()]
+          : [
+              "http://127.0.0.1:6005",
+              "http://localhost:6005",
+              "http://127.0.0.1:6006",
+              "http://localhost:6006",
+            ];
+        if (!allowed.includes(origin)) {
           throw new Error("Origin");
         }
       } catch {
@@ -121,10 +133,93 @@ export function createApp(
   }
 
   app.get("/api/config", (_req, res) => {
-    res.json({ asrModel: config.asr.model, llmModel: config.llm.model });
+    const config = settings.get();
+    res.json({
+      asrModel: config.asr.model,
+      llmModel: config.llm.model,
+      configured: Boolean(config.asr.baseUrl && config.llm.baseUrl),
+      desktop: options.desktop ?? false,
+      platform: options.desktop ? process.platform : undefined,
+    });
+  });
+
+  app.get("/api/settings", (_req, res) => {
+    res.json(settings.public());
+  });
+  app.put("/api/settings", (req, res) => {
+    try {
+      res.json(settings.save(req.body));
+    } catch (error) {
+      if (error instanceof Error && "code" in error)
+        throw new ApiError(500, "Could not save connection settings.");
+      throw new ApiError(
+        400,
+        error instanceof Error ? error.message : "Invalid settings.",
+      );
+    }
+  });
+  app.post("/api/settings/test", async (req, res) => {
+    const { kind, provider } = req.body ?? {};
+    if (kind !== "asr" && kind !== "llm")
+      throw new ApiError(400, "Choose ASR or LLM.");
+    let resolved: Provider;
+    try {
+      resolved = settings.resolve(provider, kind);
+    } catch (error) {
+      throw new ApiError(
+        400,
+        error instanceof Error ? error.message : "Invalid settings.",
+      );
+    }
+    const startedAt = performance.now();
+    try {
+      const response = await fetchProvider(`${resolved.baseUrl}/models`, {
+        headers: resolved.key
+          ? { Authorization: `Bearer ${resolved.key}` }
+          : {},
+        signal: AbortSignal.any([
+          cancellation(res),
+          AbortSignal.timeout(15000),
+        ]),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new ApiError(
+          502,
+          `Connection check returned HTTP ${response.status}. Verify the URL and API key.`,
+        );
+      }
+      const body = await response.json();
+      if (!Array.isArray(body?.data))
+        throw new ApiError(
+          502,
+          "Endpoint did not return a compatible model list.",
+        );
+      const models = body.data
+        .map((item: { id?: unknown }) => item.id)
+        .filter((id: unknown): id is string => typeof id === "string")
+        .slice(0, 500);
+      res.json({
+        models,
+        modelFound: models.includes(resolved.model),
+        elapsedMs: Math.round(performance.now() - startedAt),
+      });
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw new ApiError(
+        502,
+        "Connection check failed or timed out. Verify the URL and API key.",
+      );
+    }
   });
 
   app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
+    const config = settings.get();
+    if (!config.asr.baseUrl)
+      throw new ApiError(
+        400,
+        "Configure the ASR endpoint in Connections first.",
+      );
     if (
       !req.file ||
       !["audio/wav", "audio/x-wav", "audio/wave"].includes(req.file.mimetype)
@@ -176,6 +271,12 @@ export function createApp(
   });
 
   app.post("/api/translate", async (req, res) => {
+    const config = settings.get();
+    if (!config.llm.baseUrl)
+      throw new ApiError(
+        400,
+        "Configure the translation endpoint in Connections first.",
+      );
     const { text, targets } = req.body ?? {};
     if (typeof text !== "string" || !text.trim() || text.length > 8000)
       throw new ApiError(400, "Provide a sentence of 1–8000 characters.");

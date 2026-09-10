@@ -24,6 +24,8 @@ describe("model API", () => {
     expect(response.body).toEqual({
       asrModel: config.asr.model,
       llmModel: config.llm.model,
+      configured: true,
+      desktop: false,
     });
     expect(response.text).not.toContain("private");
   });

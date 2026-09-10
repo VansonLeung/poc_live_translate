@@ -5,7 +5,6 @@ import {
   Badge,
   Button,
   Card,
-  Empty,
   Popconfirm,
   Segmented,
   Select,
@@ -27,9 +26,7 @@ import {
   PlayCircleFilled,
   ReloadOutlined,
   SettingOutlined,
-  SoundOutlined,
   StopFilled,
-  TranslationOutlined,
 } from "@ant-design/icons";
 import {
   languageName,
@@ -38,6 +35,8 @@ import {
 } from "../shared/languages";
 import { useLiveTranslation } from "./useLiveTranslation";
 import DiagnosticsPanel from "./DiagnosticsPanel";
+import ConnectionSettings from "./ConnectionSettings";
+import type { AppConfiguration } from "../shared/settings";
 import { useReducedMotion } from "./useReducedMotion";
 import type { AudioSource } from "./audio/capture";
 
@@ -62,10 +61,8 @@ export default function App() {
   const [threshold, setThreshold] = useState(0.012);
   const [advanced, setAdvanced] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [models, setModels] = useState<{
-    asrModel: string;
-    llmModel: string;
-  }>();
+  const [models, setModels] = useState<AppConfiguration>();
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [configError, setConfigError] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
   const locked =
@@ -81,7 +78,10 @@ export default function App() {
         if (!response.ok) throw new Error();
         return response.json();
       })
-      .then(setModels)
+      .then((config: AppConfiguration) => {
+        setModels(config);
+        if (config.configured === false) setConnectionsOpen(true);
+      })
       .catch(() => setConfigError(true));
   };
   useEffect(refreshConfig, []);
@@ -137,39 +137,31 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/" aria-label="Maritime home">
-          <span className="brand-mark">
-            <SoundOutlined />
-          </span>
-          <span>
-            maritime<span className="brand-divider">/</span>
-            <span className="brand-product">live translate</span>
-          </span>
-        </a>
-        <div className="topbar-status">
-          <span className="local-dot" /> Local workspace{" "}
-          <span className="poc-label">POC</span>
-        </div>
+        <h1>Live Translate</h1>
+        <Button
+          aria-label="Connections"
+          icon={<SettingOutlined />}
+          disabled={locked}
+          onClick={() => setConnectionsOpen(true)}
+        >
+          Connections
+        </Button>
       </header>
-
+      <ConnectionSettings
+        open={connectionsOpen && !locked}
+        onClose={() => setConnectionsOpen(false)}
+        onSaved={() => {
+          refreshConfig();
+          message.success("Connections saved");
+        }}
+      />
       <main>
-        <div className="page-heading">
-          <div>
-            <div className="eyebrow">REAL-TIME COMMUNICATION</div>
-            <h1>Every voice. Understood.</h1>
-            <p>Listen in one language. Follow along in many.</p>
-          </div>
-          <Tag className="sentence-tag" icon={<TranslationOutlined />}>
-            Sentence-by-sentence translation
-          </Tag>
-        </div>
-
         {configError && (
           <Alert
             type="error"
             showIcon
             title="Cannot connect to the local API"
-            description="Start the app with npm run dev to run both the frontend and API."
+            description="The local service is unavailable. Restart the app or the development server."
             action={<Button onClick={refreshConfig}>Retry</Button>}
           />
         )}
@@ -183,19 +175,13 @@ export default function App() {
           />
         )}
 
-        <DiagnosticsPanel
-          captureOnly={captureOnly}
-          setCaptureOnly={setCaptureOnly}
-          locked={locked}
-        />
-
         <div className="workspace">
           <aside className="settings-panel">
             <Card
               className="setup-card"
               title={
                 <span>
-                  <SettingOutlined /> Session setup
+                  <SettingOutlined /> Audio and languages
                 </span>
               }
             >
@@ -213,7 +199,7 @@ export default function App() {
                       icon: <AudioOutlined />,
                     },
                     {
-                      label: "Browser tab",
+                      label: models?.desktop ? "Desktop audio" : "Browser tab",
                       value: "browser",
                       icon: <GlobalOutlined />,
                     },
@@ -249,8 +235,14 @@ export default function App() {
                 <div className="source-note">
                   <GlobalOutlined />
                   <span>
-                    Choose a tab and enable <strong>Share tab audio</strong> in
-                    the browser dialog. Chrome or Edge is recommended.
+                    {models?.desktop ? (
+                      "Choose a screen to share its audio. Allow screen and system audio recording if prompted."
+                    ) : (
+                      <>
+                        Choose a tab and enable <strong>Share tab audio</strong>
+                        . Use Chrome or Edge.
+                      </>
+                    )}
                   </span>
                 </div>
               )}
@@ -272,9 +264,8 @@ export default function App() {
                   placeholder="Auto-detect language"
                 />
                 <p className="field-hint">
-                  Leave empty for auto-detection. One language fixes the ASR
-                  language; multiple languages provide hints while
-                  auto-detecting.
+                  Empty: auto-detect. One language: fixed. Multiple: detection
+                  hints.
                 </p>
               </div>
               <div className="field">
@@ -292,9 +283,7 @@ export default function App() {
                   optionFilterProp="label"
                   placeholder="Select translation languages"
                 />
-                <p className="field-hint">
-                  Follow up to 5 translations side by side.
-                </p>
+                <p className="field-hint">Up to 5 languages.</p>
               </div>
 
               <button
@@ -350,7 +339,10 @@ export default function App() {
                 disabled={
                   !session.recording &&
                   ((!captureOnly &&
-                    (!targets.length || !models || configError)) ||
+                    (!targets.length ||
+                      !models ||
+                      models.configured === false ||
+                      configError)) ||
                     session.pending > 0 ||
                     session.retrying > 0)
                 }
@@ -382,36 +374,6 @@ export default function App() {
                   : "Audio is captured only while listening."}
               </p>
             </Card>
-
-            <div className="model-card">
-              <div className="eyebrow">POWERED BY YOUR MODELS</div>
-              <div className="model-row">
-                <span className="model-icon">
-                  <AudioOutlined />
-                </span>
-                <div>
-                  <span>Speech recognition</span>
-                  <strong>
-                    {models?.asrModel ?? "Loading configuration…"}
-                  </strong>
-                </div>
-              </div>
-              <div className="model-row">
-                <span className="model-icon">
-                  <TranslationOutlined />
-                </span>
-                <div>
-                  <span>Translation</span>
-                  <strong>
-                    {models?.llmModel ?? "Loading configuration…"}
-                  </strong>
-                </div>
-              </div>
-              <p>
-                Audio and text are sent to your configured model server. API
-                keys stay on the local API server.
-              </p>
-            </div>
           </aside>
 
           <section className="transcript-panel">
@@ -430,14 +392,16 @@ export default function App() {
                         ? "Connecting audio…"
                         : session.pending
                           ? "Processing your speech"
-                          : "Ready when you are"}
+                          : "Ready"}
                   </strong>
                   <span>
                     {session.recording
                       ? "Speak naturally. Pause briefly between sentences."
                       : session.pending
                         ? `${session.pending} audio segment${session.pending === 1 ? "" : "s"} remaining`
-                        : "Set your languages and start a conversation."}
+                        : captureOnly
+                          ? "Capture only: no model requests."
+                          : "Microphone off"}
                   </span>
                 </div>
               </div>
@@ -516,51 +480,19 @@ export default function App() {
             >
               {!session.rows.length ? (
                 <div className="empty-state">
-                  <div
-                    className={`empty-visual ${session.recording ? "pulsing" : ""}`}
-                  >
-                    <span className="orbit orbit-one" />
-                    <span className="orbit orbit-two" />
-                    <span className="empty-mic">
-                      <AudioOutlined />
-                    </span>
-                    <span className="language-bubble bubble-one">Hello</span>
-                    <span className="language-bubble bubble-two">你好</span>
-                    <span className="language-bubble bubble-three">
-                      こんにちは
-                    </span>
-                  </div>
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    imageStyle={{ display: "none" }}
-                    description={
-                      <>
-                        <h3>
-                          {session.recording
-                            ? "Your conversation starts here"
-                            : "A space for every language"}
-                        </h3>
-                        <p>
-                          {session.recording
-                            ? "Listening for speech. Your first sentence will appear after a short pause."
-                            : "Your words and their translations will appear here, one sentence at a time."}
-                        </p>
-                      </>
-                    }
-                  />
-                  <div className="empty-steps">
-                    <span>
-                      <AudioOutlined /> Listen
-                    </span>
-                    <span className="step-line" />
-                    <span>
-                      <SoundOutlined /> Transcribe
-                    </span>
-                    <span className="step-line" />
-                    <span>
-                      <TranslationOutlined /> Translate
-                    </span>
-                  </div>
+                  <AudioOutlined className="empty-icon" />
+                  <h3>
+                    {session.recording
+                      ? "Listening for speech…"
+                      : "No transcript yet"}
+                  </h3>
+                  <p>
+                    {captureOnly
+                      ? "Capture-only measurements appear under Latency diagnostics."
+                      : session.recording
+                        ? "Pause briefly to process the sentence."
+                        : "Choose audio and languages, then start listening."}
+                  </p>
                 </div>
               ) : (
                 session.rows.map((row, index) => (
@@ -655,12 +587,11 @@ export default function App() {
             </div>
           </section>
         </div>
-        <footer className="page-footer">
-          <span>
-            MARITIME <span className="footer-slash">/</span> LIVE TRANSLATE
-          </span>
-          <span>Speech connects us.</span>
-        </footer>
+        <DiagnosticsPanel
+          captureOnly={captureOnly}
+          setCaptureOnly={setCaptureOnly}
+          locked={locked}
+        />
       </main>
     </div>
   );
