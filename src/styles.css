@@ -525,3 +525,43 @@ h2 {
     scroll-behavior: auto;
   }
 }
+.mode-selector {
+  margin-bottom: 20px;
+}
+.qa-toolbar {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.qa-scroll {
+  height: calc(100vh - 535px);
+  min-height: 220px;
+}
+.qa-composer {
+  border-top: 1px solid #e8edf0;
+  padding: 16px 20px;
+}
+.qa-composer > label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.qa-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+.qa-composer-actions > span {
+  font-size: 12px;
+  color: #718792;
+}
+@media (max-width: 760px) {
+  .qa-scroll {
+    height: 320px;
+  }
+  .qa-composer {
+    padding: 14px;
+  }
+}

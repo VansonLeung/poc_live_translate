@@ -6,7 +6,17 @@ import { createServer } from "node:http";
 
 test("desktop configures and persists encrypted endpoints, isolates the renderer, and captures audio", async () => {
   const profile = await mkdtemp(join(tmpdir(), "live-translate-desktop-"));
-  const provider = createServer((_req, response) => {
+  const provider = createServer((request, response) => {
+    if (request.url === "/v1/chat/completions") {
+      response.setHeader("Content-Type", "text/event-stream");
+      response.write(
+        'data: {"choices":[{"delta":{"content":"Desktop answer"},"finish_reason":null}]}\n\n',
+      );
+      response.end(
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      );
+      return;
+    }
     response.setHeader("Content-Type", "application/json");
     response.end(
       JSON.stringify({ data: [{ id: "test-asr" }, { id: "test-llm" }] }),
@@ -21,7 +31,8 @@ test("desktop configures and persists encrypted endpoints, isolates the renderer
   const baseUrl = `http://127.0.0.1:${address.port}/v1`;
   const environment: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (key !== "ELECTRON_RUN_AS_NODE" && value !== undefined) environment[key] = value;
+    if (key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)
+      environment[key] = value;
   }
   environment.LIVE_TRANSLATE_DATA_DIR = profile;
   const launch = () =>
@@ -66,6 +77,7 @@ test("desktop configures and persists encrypted endpoints, isolates the renderer
     await application.close();
     application = await launch();
     page = await application.firstWindow();
+    page.on("pageerror", (error) => errors.push(error.message));
     await page
       .getByRole("button", { name: "Connections", exact: true })
       .click();
@@ -95,6 +107,21 @@ test("desktop configures and persists encrypted endpoints, isolates the renderer
         .getByRole("table", { name: "Audio segment timings", exact: true })
         .locator("tbody tr"),
     ).toHaveCount(1);
+    await expect(
+      page.getByRole("button", { name: "Start listening" }),
+    ).toBeEnabled();
+    await page
+      .getByRole("switch", { name: "Capture only", exact: true })
+      .click();
+    await page.getByText("Live Q&A", { exact: true }).click();
+    await page
+      .getByLabel("Your question", { exact: true })
+      .fill("Does Q&A work in Electron?");
+    await page.getByRole("button", { name: "Ask now", exact: true }).click();
+    await expect(
+      page.getByText("Desktop answer", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Answered", { exact: true })).toBeVisible();
     await page.screenshot({ path: "test-results/desktop.png", fullPage: true });
     expect(errors).toEqual([]);
   } finally {

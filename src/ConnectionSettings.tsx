@@ -175,7 +175,7 @@ export default function ConnectionSettings({
               <h3>
                 {kind === "asr"
                   ? "Speech recognition (ASR)"
-                  : "Translation (LLM)"}
+                  : "Translation and answers (LLM)"}
               </h3>
               <Form.Item
                 name={[kind, "baseUrl"]}

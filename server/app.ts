@@ -1,5 +1,6 @@
 import express from "express";
 import multer from "multer";
+import { answerHandler } from "./answer";
 import { SettingsStore } from "./settings";
 import type { Configuration, Provider } from "../shared/settings";
 export type { Configuration, Provider } from "../shared/settings";
@@ -79,6 +80,8 @@ export function createApp(
     res.setHeader("Cache-Control", "no-store");
     next();
   });
+  // Q&A allows 24,000 question/history characters, including JSON-escaped Unicode.
+  app.use("/api/answer", express.json({ limit: "192kb" }));
   app.use(express.json({ limit: "64kb" }));
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -342,6 +345,8 @@ export function createApp(
     );
     res.json({ translations });
   });
+
+  app.post("/api/answer", answerHandler(settings, fetchProvider));
 
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "Unknown API route." });

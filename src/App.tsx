@@ -34,6 +34,8 @@ import {
   targetLanguages,
 } from "../shared/languages";
 import { useLiveTranslation } from "./useLiveTranslation";
+import { useLiveQA } from "./useLiveQA";
+import QAPanel from "./QAPanel";
 import DiagnosticsPanel from "./DiagnosticsPanel";
 import ConnectionSettings from "./ConnectionSettings";
 import type { AppConfiguration } from "../shared/settings";
@@ -49,9 +51,20 @@ const clock = (seconds: number) =>
 
 export default function App() {
   const { message } = AntApp.useApp();
-  const session = useLiveTranslation();
+  const translation = useLiveTranslation();
+  const [mode, setMode] = useState<"translate" | "qa">("translate");
+  const [autoAnswer, setAutoAnswer] = useState(false);
+  const [answerLanguage, setAnswerLanguage] = useState("auto");
+  const [questionPause, setQuestionPause] = useState(1800);
   const reducedMotion = useReducedMotion();
   const [captureOnly, setCaptureOnly] = useState(false);
+  const qa = useLiveQA({
+    autoAnswer,
+    answerLanguage,
+    enabled: mode === "qa",
+    captureOnly,
+  });
+  const session = mode === "qa" ? qa : translation;
   const [source, setSource] = useState<AudioSource>("microphone");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string>();
@@ -69,7 +82,8 @@ export default function App() {
     session.recording ||
     session.starting ||
     session.pending > 0 ||
-    session.retrying > 0;
+    session.retrying > 0 ||
+    qa.answering;
 
   const refreshConfig = () => {
     setConfigError(false);
@@ -106,10 +120,10 @@ export default function App() {
         top: container.scrollHeight,
         behavior: reducedMotion ? "auto" : "smooth",
       });
-  }, [session.rows, autoScroll, reducedMotion]);
+  }, [translation.rows, autoScroll, reducedMotion]);
 
   const transcript = () =>
-    session.rows
+    translation.rows
       .map(
         (row) =>
           `[${clock(row.offset)}] ${row.text || "[Transcription failed]"}\n${row.error ? `Error: ${row.error}\n` : ""}${row.translations.map((t) => `${languageName(t.language)}: ${t.text || t.error || "(pending)"}`).join("\n")}`,
@@ -137,7 +151,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <h1>Live Translate</h1>
+        <h1>{mode === "qa" ? "Live Q&A" : "Live Translate"}</h1>
         <Button
           aria-label="Connections"
           icon={<SettingOutlined />}
@@ -156,6 +170,17 @@ export default function App() {
         }}
       />
       <main>
+        <Segmented
+          className="mode-selector"
+          aria-label="App mode"
+          disabled={locked}
+          value={mode}
+          onChange={(value) => setMode(value as "translate" | "qa")}
+          options={[
+            { label: "Live Translate", value: "translate" },
+            { label: "Live Q&A", value: "qa" },
+          ]}
+        />
         {configError && (
           <Alert
             type="error"
@@ -268,23 +293,60 @@ export default function App() {
                   hints.
                 </p>
               </div>
-              <div className="field">
-                <label htmlFor="target-languages">
-                  <span className="step-number">2</span> Translate into
-                </label>
-                <Select
-                  id="target-languages"
-                  mode="multiple"
-                  disabled={locked}
-                  maxCount={5}
-                  value={targets}
-                  onChange={setTargets}
-                  options={targetLanguages}
-                  optionFilterProp="label"
-                  placeholder="Select translation languages"
-                />
-                <p className="field-hint">Up to 5 languages.</p>
-              </div>
+              {mode === "translate" ? (
+                <div className="field">
+                  <label htmlFor="target-languages">
+                    <span className="step-number">2</span> Translate into
+                  </label>
+                  <Select
+                    id="target-languages"
+                    mode="multiple"
+                    disabled={locked}
+                    maxCount={5}
+                    value={targets}
+                    onChange={setTargets}
+                    options={targetLanguages}
+                    optionFilterProp="label"
+                    placeholder="Select translation languages"
+                  />
+                  <p className="field-hint">Up to 5 languages.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="field">
+                    <label htmlFor="answer-language">Answer language</label>
+                    <Select
+                      id="answer-language"
+                      showSearch
+                      optionFilterProp="label"
+                      disabled={locked}
+                      value={answerLanguage}
+                      onChange={setAnswerLanguage}
+                      options={[
+                        { value: "auto", label: "Same as question" },
+                        ...targetLanguages,
+                      ]}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="auto-answer">
+                      Automatic answers{" "}
+                      <Switch
+                        id="auto-answer"
+                        aria-label="Automatic answers"
+                        checked={autoAnswer}
+                        onChange={setAutoAnswer}
+                        disabled={locked || captureOnly}
+                      />
+                    </label>
+                    <p className="field-hint">
+                      {autoAnswer
+                        ? "Answer each completed speaking turn after a pause. Further speech waits while an answer is generated."
+                        : "Review your question, then click Ask now."}
+                    </p>
+                  </div>
+                </>
+              )}
 
               <button
                 className="advanced-toggle"
@@ -297,16 +359,27 @@ export default function App() {
               {advanced && (
                 <div className="advanced-settings">
                   <label>
-                    Pause between sentences{" "}
-                    <strong>{(silenceMs / 1000).toFixed(1)}s</strong>
+                    {mode === "qa"
+                      ? "Pause before answering"
+                      : "Pause between sentences"}{" "}
+                    <strong>
+                      {(
+                        (mode === "qa" ? questionPause : silenceMs) / 1000
+                      ).toFixed(1)}
+                      s
+                    </strong>
                   </label>
                   <Slider
-                    aria-label="Pause between sentences"
+                    aria-label={
+                      mode === "qa"
+                        ? "Pause before answering"
+                        : "Pause between sentences"
+                    }
                     min={400}
-                    max={1600}
+                    max={mode === "qa" ? 4000 : 1600}
                     step={100}
-                    value={silenceMs}
-                    onChange={setSilenceMs}
+                    value={mode === "qa" ? questionPause : silenceMs}
+                    onChange={mode === "qa" ? setQuestionPause : setSilenceMs}
                     disabled={locked}
                   />
                   <label>
@@ -339,7 +412,7 @@ export default function App() {
                 disabled={
                   !session.recording &&
                   ((!captureOnly &&
-                    (!targets.length ||
+                    ((mode === "translate" && !targets.length) ||
                       !models ||
                       models.configured === false ||
                       configError)) ||
@@ -355,7 +428,7 @@ export default function App() {
                         deviceId,
                         languages,
                         targets,
-                        silenceMs,
+                        silenceMs: mode === "qa" ? questionPause : silenceMs,
                         threshold,
                         captureOnly,
                         models,
@@ -365,12 +438,16 @@ export default function App() {
                 {session.recording
                   ? "Stop listening"
                   : session.pending > 0
-                    ? "Finishing translations…"
+                    ? mode === "qa"
+                      ? "Finishing transcription…"
+                      : "Finishing translations…"
                     : "Start listening"}
               </Button>
               <p className="capture-hint">
                 {session.recording
-                  ? "Stop anytime. Remaining speech will finish translating."
+                  ? mode === "qa"
+                    ? "Stop listening to finish the question."
+                    : "Stop anytime. Remaining speech will finish translating."
                   : "Audio is captured only while listening."}
               </p>
             </Card>
@@ -396,7 +473,9 @@ export default function App() {
                   </strong>
                   <span>
                     {session.recording
-                      ? "Speak naturally. Pause briefly between sentences."
+                      ? mode === "qa"
+                        ? "Speak your question. Pause when finished."
+                        : "Speak naturally. Pause briefly between sentences."
                       : session.pending
                         ? `${session.pending} audio segment${session.pending === 1 ? "" : "s"} remaining`
                         : captureOnly
@@ -429,162 +508,189 @@ export default function App() {
               <span className="session-clock">{clock(session.elapsed)}</span>
             </div>
 
-            <div className="transcript-toolbar">
-              <div>
-                <h2>Live transcript</h2>
-                <Badge
-                  count={session.rows.length}
-                  showZero
-                  color="#edf2f5"
-                  style={{ color: "#516271", boxShadow: "none" }}
-                />
-              </div>
-              <Space size={4}>
-                <Tooltip title="Copy transcript">
-                  <Button
-                    type="text"
-                    aria-label="Copy transcript"
-                    icon={<CopyOutlined />}
-                    disabled={!session.rows.length}
-                    onClick={() => void copy()}
-                  />
-                </Tooltip>
-                <Button
-                  type="text"
-                  aria-label="Export transcript"
-                  icon={<DownloadOutlined />}
-                  disabled={!session.rows.length}
-                  onClick={download}
-                >
-                  Export
-                </Button>
-                <Popconfirm
-                  title="Clear the transcript?"
-                  description="Export first if you want to keep a copy."
-                  onConfirm={session.clear}
-                  disabled={locked || !session.rows.length}
-                >
-                  <Button
-                    type="text"
-                    aria-label="Clear transcript"
-                    icon={<DeleteOutlined />}
-                    disabled={locked || !session.rows.length}
-                  />
-                </Popconfirm>
-              </Space>
-            </div>
-            <div
-              className="transcript-scroll"
-              aria-live="polite"
-              aria-relevant="additions text"
-            >
-              {!session.rows.length ? (
-                <div className="empty-state">
-                  <AudioOutlined className="empty-icon" />
-                  <h3>
-                    {session.recording
-                      ? "Listening for speech…"
-                      : "No transcript yet"}
-                  </h3>
-                  <p>
-                    {captureOnly
-                      ? "Capture-only measurements appear under Latency diagnostics."
-                      : session.recording
-                        ? "Pause briefly to process the sentence."
-                        : "Choose audio and languages, then start listening."}
-                  </p>
-                </div>
-              ) : (
-                session.rows.map((row, index) => (
-                  <article className="sentence-card" key={row.id}>
-                    <div className="sentence-meta">
-                      <span className="sentence-index">
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
-                      <span>{clock(row.offset)}</span>
-                      <Tag>
-                        {row.language ? languageName(row.language) : "Original"}
-                      </Tag>
-                      <span className="sentence-state">
-                        {row.status === "translating" ? (
-                          <>
-                            <Spin
-                              indicator={<LoadingOutlined spin />}
-                              size="small"
-                            />{" "}
-                            Translating
-                          </>
-                        ) : row.status === "error" ? (
-                          <span className="error-text">Needs attention</span>
-                        ) : (
-                          <>
-                            <CheckOutlined /> Translated
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <p className="original-text" dir="auto">
-                      {row.text || "Audio segment could not be transcribed."}
-                    </p>
-                    <div className="translations-grid">
-                      {row.translations.map((translation) => (
-                        <div className="translation" key={translation.language}>
-                          <div className="translation-label">
-                            {languageName(translation.language)}
-                          </div>
-                          <p
-                            dir="auto"
-                            className={translation.error ? "error-text" : ""}
-                          >
-                            {translation.text ||
-                              translation.error ||
-                              (row.status === "translating"
-                                ? "Translating…"
-                                : "Translation unavailable")}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                    {row.error && (
-                      <p className="error-text row-error">{row.error}</p>
-                    )}
-                    {row.status === "error" && (
+            {mode === "qa" ? (
+              <QAPanel
+                qa={qa}
+                locked={locked}
+                available={Boolean(
+                  models && models.configured !== false && !configError,
+                )}
+                captureOnly={captureOnly}
+                onStopGenerating={() => {
+                  setAutoAnswer(false);
+                  qa.stopGenerating();
+                }}
+              />
+            ) : (
+              <>
+                <div className="transcript-toolbar">
+                  <div>
+                    <h2>Live transcript</h2>
+                    <Badge
+                      count={translation.rows.length}
+                      showZero
+                      color="#edf2f5"
+                      style={{ color: "#516271", boxShadow: "none" }}
+                    />
+                  </div>
+                  <Space size={4}>
+                    <Tooltip title="Copy transcript">
                       <Button
-                        size="small"
-                        icon={<ReloadOutlined />}
-                        onClick={() => void session.retry(row)}
-                      >
-                        Retry
-                      </Button>
-                    )}
-                  </article>
-                ))
-              )}
-              <div ref={bottom} />
-            </div>
-            <div className="transcript-footer">
-              <span>
-                <span
-                  className={`footer-dot ${session.recording ? "active" : ""}`}
-                />
-                {session.recording
-                  ? "Capture active"
-                  : session.pending
-                    ? "Finishing queued audio"
-                    : "Capture off"}
-                {session.pending > 0 && session.recording
-                  ? ` · ${session.pending} processing`
-                  : ""}
-              </span>
-              <label>
-                Auto-scroll{" "}
-                <Switch
-                  size="small"
-                  checked={autoScroll}
-                  onChange={setAutoScroll}
-                />
-              </label>
-            </div>
+                        type="text"
+                        aria-label="Copy transcript"
+                        icon={<CopyOutlined />}
+                        disabled={!translation.rows.length}
+                        onClick={() => void copy()}
+                      />
+                    </Tooltip>
+                    <Button
+                      type="text"
+                      aria-label="Export transcript"
+                      icon={<DownloadOutlined />}
+                      disabled={!translation.rows.length}
+                      onClick={download}
+                    >
+                      Export
+                    </Button>
+                    <Popconfirm
+                      title="Clear the transcript?"
+                      description="Export first if you want to keep a copy."
+                      onConfirm={session.clear}
+                      disabled={locked || !translation.rows.length}
+                    >
+                      <Button
+                        type="text"
+                        aria-label="Clear transcript"
+                        icon={<DeleteOutlined />}
+                        disabled={locked || !translation.rows.length}
+                      />
+                    </Popconfirm>
+                  </Space>
+                </div>
+                <div
+                  className="transcript-scroll"
+                  aria-live="polite"
+                  aria-relevant="additions text"
+                >
+                  {!translation.rows.length ? (
+                    <div className="empty-state">
+                      <AudioOutlined className="empty-icon" />
+                      <h3>
+                        {session.recording
+                          ? "Listening for speech…"
+                          : "No transcript yet"}
+                      </h3>
+                      <p>
+                        {captureOnly
+                          ? "Capture-only measurements appear under Latency diagnostics."
+                          : session.recording
+                            ? "Pause briefly to process the sentence."
+                            : "Choose audio and languages, then start listening."}
+                      </p>
+                    </div>
+                  ) : (
+                    translation.rows.map((row, index) => (
+                      <article className="sentence-card" key={row.id}>
+                        <div className="sentence-meta">
+                          <span className="sentence-index">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <span>{clock(row.offset)}</span>
+                          <Tag>
+                            {row.language
+                              ? languageName(row.language)
+                              : "Original"}
+                          </Tag>
+                          <span className="sentence-state">
+                            {row.status === "translating" ? (
+                              <>
+                                <Spin
+                                  indicator={<LoadingOutlined spin />}
+                                  size="small"
+                                />{" "}
+                                Translating
+                              </>
+                            ) : row.status === "error" ? (
+                              <span className="error-text">
+                                Needs attention
+                              </span>
+                            ) : (
+                              <>
+                                <CheckOutlined /> Translated
+                              </>
+                            )}
+                          </span>
+                        </div>
+                        <p className="original-text" dir="auto">
+                          {row.text ||
+                            "Audio segment could not be transcribed."}
+                        </p>
+                        <div className="translations-grid">
+                          {row.translations.map((translation) => (
+                            <div
+                              className="translation"
+                              key={translation.language}
+                            >
+                              <div className="translation-label">
+                                {languageName(translation.language)}
+                              </div>
+                              <p
+                                dir="auto"
+                                className={
+                                  translation.error ? "error-text" : ""
+                                }
+                              >
+                                {translation.text ||
+                                  translation.error ||
+                                  (row.status === "translating"
+                                    ? "Translating…"
+                                    : "Translation unavailable")}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                        {row.error && (
+                          <p className="error-text row-error">{row.error}</p>
+                        )}
+                        {row.status === "error" && (
+                          <Button
+                            size="small"
+                            icon={<ReloadOutlined />}
+                            onClick={() => void translation.retry(row)}
+                          >
+                            Retry
+                          </Button>
+                        )}
+                      </article>
+                    ))
+                  )}
+                  <div ref={bottom} />
+                </div>
+                <div className="transcript-footer">
+                  <span>
+                    <span
+                      className={`footer-dot ${session.recording ? "active" : ""}`}
+                    />
+                    {session.recording
+                      ? "Capture active"
+                      : session.pending
+                        ? "Finishing queued audio"
+                        : "Capture off"}
+                    {session.pending > 0 && session.recording
+                      ? ` · ${session.pending} processing`
+                      : ""}
+                  </span>
+                  <label>
+                    Auto-scroll{" "}
+                    <Switch
+                      size="small"
+                      checked={autoScroll}
+                      onChange={setAutoScroll}
+                    />
+                  </label>
+                </div>
+              </>
+            )}
           </section>
         </div>
         <DiagnosticsPanel

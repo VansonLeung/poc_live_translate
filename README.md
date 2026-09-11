@@ -1,6 +1,6 @@
 # Live Translate
 
-Live speech transcription and sentence-by-sentence translation, with a Vite/TypeScript/Ant Design browser interface and an Electron app for macOS and Windows.
+Live speech transcription, sentence-by-sentence translation, and voice question answering, with a Vite/TypeScript/Ant Design browser interface and an Electron app for macOS and Windows.
 
 ## Browser
 
@@ -67,6 +67,21 @@ Outputs go to `release/`. Packaging includes only the compiled app and runtime d
 
 For local unsigned macOS packaging use `npx electron-builder --mac --arm64 --publish never -c.mac.identity=null` after `npm run build:desktop`. Public distribution requires your Apple/Windows signing configuration; macOS notarization and Windows signing are not configured here. Native Windows behavior must be verified on a Windows machine even when cross-building its installer from macOS.
 
+## Live Q&A
+
+Choose **Live Q&A** above the workspace. This mode answers questions addressed directly to the assistant using the configured LLM and recent conversation history. It uses general model knowledge; it does not search the web, read documents, or detect questions in a meeting.
+
+- Start listening to dictate, or type into **Your question**. Transcribed speech is appended to this editable draft.
+- **Ask now** is the default trigger. It stops audio capture, finishes queued ASR, and submits the entire draft as one question. A question may contain several sentences. Correct recognition errors before clicking Ask if needed.
+- Enable **Automatic answers** before listening to submit after a completed speaking turn. **Audio fine-tuning → Pause before answering** defaults to 1.8 seconds and is adjustable. The 12-second audio limit does not submit a partial question: chunks are combined until a pause or stop.
+- Answers appear as streaming text. Providers that return a normal JSON completion display their answer when it is complete. Answer language defaults to **Same as question**, with an explicit language selector available.
+- Capture can continue during generation. Further speech collects in the next draft; automatic submission waits for the current answer and queued ASR to finish. Several speaking turns during a slow answer may combine in that draft. Automatic mode uses pauses, not semantic question detection.
+- **Stop generating** preserves the partial answer, cancels the upstream request, and turns automatic answering off. Failed or incomplete answers remain marked and are excluded from follow-up context. **Edit and ask again** restores an interrupted/failed question when the next draft is empty.
+- Follow-ups include up to six recent completed question/answer pairs within a 16,000-character context budget. Questions are limited to 8,000 characters. Transcription failures pause automatic submission so you can review potentially missing speech.
+- **New conversation** clears questions, answers, and the draft. Export first to keep a copy. Conversation state stays in memory; switching modes preserves it, while reloading or closing clears it. Mode switching and connection changes are locked while capture, transcription, or generation is active.
+
+Q&A shares microphone/browser/desktop capture, source languages, ASR/LLM connections, and capture-only diagnostics with translation. The diagnostics panel measures capture and ASR in Q&A; its translation timing table applies only to Live Translate. Capture-only mode makes no model requests and disables Ask.
+
 ## Processing
 
 - An AudioWorklet captures mono PCM. Energy-based speech detection keeps 250 ms of pre-roll, skips silence, and ends an utterance after an adjustable pause (default 800 ms).
@@ -129,6 +144,8 @@ To serve the built frontend on port 6005, run `npm start` in one terminal and `n
 
 Tests cover WAV encoding, speech boundaries, multilingual sentence buffering, API contracts/validation, credential isolation, partial translation failure, and browser microphone capture with mocked model responses. Browser tests use Chromium's synthetic microphone, never a real microphone. Real model availability and accuracy require the configured model server.
 
-Desktop checks launch Electron with an isolated temporary profile and synthetic microphone. They verify endpoint configuration, encrypted persistence across restart, renderer isolation, API authentication, and capture-only audio.
+Q&A checks cover editable questions, whole-turn assembly across audio boundaries, streaming/cancellation, context isolation, and conversation reset.
+
+Desktop checks launch Electron with an isolated temporary profile and synthetic microphone. They verify endpoint configuration, encrypted persistence across restart, renderer isolation, API authentication, capture-only audio, and Q&A through the bundled API.
 
 Reference docs: [Vite server options](https://vite.dev/config/server-options), [Ant Design Select](https://ant.design/components/select/), [Qwen3-ASR languages](https://github.com/QwenLM/Qwen3-ASR), and [browser audio sharing](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getDisplayMedia).

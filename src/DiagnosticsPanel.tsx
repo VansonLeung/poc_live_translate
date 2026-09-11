@@ -29,9 +29,7 @@ export default function DiagnosticsPanel({
   };
   return (
     <details className="diagnostics-panel">
-      <summary>
-        Latency diagnostics
-      </summary>
+      <summary>Latency diagnostics</summary>
       <div className="diagnostics-body">
         <div className="diagnostics-actions">
           <label>
@@ -41,7 +39,7 @@ export default function DiagnosticsPanel({
               disabled={locked}
               aria-label="Capture only"
             />{" "}
-            Capture only — skip ASR and translation
+            Capture only — skip all model requests
           </label>
           <Button
             size="small"
@@ -54,9 +52,8 @@ export default function DiagnosticsPanel({
         </div>
         <p>
           Enable capture only, start listening, say a sentence, then pause. A
-          segment should appear after the configured pause (normally 800 ms).
-          Disable capture only and repeat to compare the model stages. Each
-          start resets this trace.
+          segment should appear after the configured pause. Disable capture only
+          and repeat to compare the model stages. Each start resets this trace.
         </p>
         <div className="diagnostic-health">
           <Tag>{trace.health?.state ?? "Not started"}</Tag>
